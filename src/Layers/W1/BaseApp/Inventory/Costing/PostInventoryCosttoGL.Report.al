@@ -13,7 +13,6 @@ using Microsoft.Foundation.NoSeries;
 using Microsoft.Inventory.Item;
 using Microsoft.Inventory.Ledger;
 using Microsoft.Inventory.Setup;
-using System.Text;
 using System.Utilities;
 
 report 1002 "Post Inventory Cost to G/L"
@@ -884,65 +883,17 @@ report 1002 "Post Inventory Cost to G/L"
 
     local procedure DeletePostValueEntriesToGL()
     var
-        SelectionFilterManagement: Codeunit SelectionFilterManagement;
-        ValueEntryNoFilter: TextBuilder;
-        FromValueEntryNo: Integer;
-        ToValueEntryNo: Integer;
-        NoOfFilterParameters: Integer;
-        MaxNoOfFilterParameters: Integer;
+        PostValueEntryToGLToDelete: Record "Post Value Entry to G/L";
+        ValueEntryNoFilters: List of [Text];
+        ValueEntryNoFilter: Text;
     begin
         // Marks are not used, because DeleteAll on many marked records can skip records. The processed entries are deleted by filters instead.
-        // A range in the filter only contains consecutive numbers that were all processed. Gaps are never bridged, because entry numbers come from
-        // a sequence and an entry in a gap may be committed later by another session.
-        // A single number takes one SQL parameter and a range takes two, so each filter is kept within the maximum number of parameters in a SQL query.
-        if not TempPostValueEntryToGLToDelete.FindSet() then
-            exit;
-
-        MaxNoOfFilterParameters := SelectionFilterManagement.GetMaximumNumberOfParametersInSQLQuery();
-        FromValueEntryNo := TempPostValueEntryToGLToDelete."Value Entry No.";
-        ToValueEntryNo := FromValueEntryNo;
-        while TempPostValueEntryToGLToDelete.Next() <> 0 do
-            if TempPostValueEntryToGLToDelete."Value Entry No." = ToValueEntryNo + 1 then
-                ToValueEntryNo := TempPostValueEntryToGLToDelete."Value Entry No."
-            else begin
-                AddRangeToDeleteFilter(ValueEntryNoFilter, NoOfFilterParameters, MaxNoOfFilterParameters, FromValueEntryNo, ToValueEntryNo);
-                FromValueEntryNo := TempPostValueEntryToGLToDelete."Value Entry No.";
-                ToValueEntryNo := FromValueEntryNo;
-            end;
-        AddRangeToDeleteFilter(ValueEntryNoFilter, NoOfFilterParameters, MaxNoOfFilterParameters, FromValueEntryNo, ToValueEntryNo);
-        DeletePostValueEntriesToGLByFilter(ValueEntryNoFilter.ToText());
-
-        TempPostValueEntryToGLToDelete.DeleteAll();
-    end;
-
-    local procedure AddRangeToDeleteFilter(var ValueEntryNoFilter: TextBuilder; var NoOfFilterParameters: Integer; MaxNoOfFilterParameters: Integer; FromValueEntryNo: Integer; ToValueEntryNo: Integer)
-    var
-        NoOfRangeParameters: Integer;
-    begin
-        NoOfRangeParameters := 1;
-        if ToValueEntryNo <> FromValueEntryNo then
-            NoOfRangeParameters := 2;
-
-        if NoOfFilterParameters + NoOfRangeParameters > MaxNoOfFilterParameters then begin
-            DeletePostValueEntriesToGLByFilter(ValueEntryNoFilter.ToText());
-            ValueEntryNoFilter.Clear();
-            NoOfFilterParameters := 0;
+        PostValueEntryToGLToDelete.GetValueEntryNoFilters(TempPostValueEntryToGLToDelete, ValueEntryNoFilters);
+        foreach ValueEntryNoFilter in ValueEntryNoFilters do begin
+            PostValueEntryToGLToDelete.SetFilter("Value Entry No.", ValueEntryNoFilter);
+            PostValueEntryToGLToDelete.DeleteAll();
         end;
-
-        if ValueEntryNoFilter.Length() > 0 then
-            ValueEntryNoFilter.Append('|');
-        ValueEntryNoFilter.Append(Format(FromValueEntryNo, 0, 9));
-        if ToValueEntryNo <> FromValueEntryNo then
-            ValueEntryNoFilter.Append('..' + Format(ToValueEntryNo, 0, 9));
-        NoOfFilterParameters += NoOfRangeParameters;
-    end;
-
-    local procedure DeletePostValueEntriesToGLByFilter(ValueEntryNoFilter: Text)
-    var
-        PostValueEntryToGLToDelete: Record "Post Value Entry to G/L";
-    begin
-        PostValueEntryToGLToDelete.SetFilter("Value Entry No.", ValueEntryNoFilter);
-        PostValueEntryToGLToDelete.DeleteAll();
+        TempPostValueEntryToGLToDelete.DeleteAll();
     end;
 
     local procedure GetDimText(var DimSetEntry: Record "Dimension Set Entry")

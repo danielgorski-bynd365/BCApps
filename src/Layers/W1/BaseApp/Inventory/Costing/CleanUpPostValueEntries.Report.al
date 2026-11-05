@@ -114,18 +114,22 @@ report 5813 "Clean Up Post Value Entries"
     local procedure DeleteEntries()
     var
         PostValueEntryToGLToDelete: Record "Post Value Entry to G/L";
+        ValueEntryNoFilters: List of [Text];
+        ValueEntryNoFilter: Text;
     begin
         // Entries are checked first without holding locks and deleted afterwards in ascending order, the same order report "Post Inventory Cost to G/L" uses.
         // The clean-up therefore never waits for a value entry while it holds locks on entries it has deleted, which avoids deadlocks with posting.
-        // Committing after each batch keeps the locks short, so that item posting, which inserts into the same table, is not blocked.
-        if not TempPostValueEntryToGLToDelete.FindSet() then
+        // The batch is deleted by filters instead of one entry at a time. Committing after each batch keeps the locks short, so that item posting,
+        // which inserts into the same table, is not blocked.
+        if TempPostValueEntryToGLToDelete.IsEmpty() then
             exit;
 
-        repeat
-            if PostValueEntryToGLToDelete.Get(TempPostValueEntryToGLToDelete."Value Entry No.") then
-                if PostValueEntryToGLToDelete.Delete() then
-                    DeletedCount += 1;
-        until TempPostValueEntryToGLToDelete.Next() = 0;
+        PostValueEntryToGLToDelete.GetValueEntryNoFilters(TempPostValueEntryToGLToDelete, ValueEntryNoFilters);
+        foreach ValueEntryNoFilter in ValueEntryNoFilters do begin
+            PostValueEntryToGLToDelete.SetFilter("Value Entry No.", ValueEntryNoFilter);
+            DeletedCount += PostValueEntryToGLToDelete.Count();
+            PostValueEntryToGLToDelete.DeleteAll();
+        end;
         TempPostValueEntryToGLToDelete.DeleteAll();
         Commit();
     end;

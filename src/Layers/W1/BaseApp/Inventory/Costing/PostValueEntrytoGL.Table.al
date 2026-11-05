@@ -7,6 +7,7 @@ namespace Microsoft.Inventory.Costing;
 using Microsoft.Inventory.Item;
 using Microsoft.Inventory.Ledger;
 using Microsoft.Inventory.Setup;
+using System.Text;
 
 table 5811 "Post Value Entry to G/L"
 {
@@ -100,6 +101,64 @@ table 5811 "Post Value Entry to G/L"
     [IntegrationEvent(false, false)]
     local procedure OnAfterIsFullyPostedToGL(ValueEntry: Record "Value Entry"; ExpectedCostPostingToGL: Boolean; var Result: Boolean)
     begin
+    end;
+
+    /// <summary>
+    /// Builds filters on "Value Entry No." that select exactly the entries in the given list, to delete them by filter instead of using marks.
+    /// </summary>
+    /// <param name="TempPostValueEntryToGL">The list of value entry numbers. The list is not changed.</param>
+    /// <param name="ValueEntryNoFilters">The filters, in ascending order of value entry numbers.</param>
+    internal procedure GetValueEntryNoFilters(var TempPostValueEntryToGL: Record "Post Value Entry to G/L" temporary; var ValueEntryNoFilters: List of [Text])
+    var
+        SelectionFilterManagement: Codeunit SelectionFilterManagement;
+        ValueEntryNoFilter: TextBuilder;
+        FromValueEntryNo: Integer;
+        ToValueEntryNo: Integer;
+        NoOfFilterParameters: Integer;
+        MaxNoOfFilterParameters: Integer;
+    begin
+        // A range in a filter only contains consecutive numbers that are all in the list. Gaps are never bridged, because entry numbers come from
+        // a sequence and an entry in a gap may be committed later by another session.
+        // A single number takes one SQL parameter and a range takes two, so each filter is kept within the maximum number of parameters in a SQL query.
+        Clear(ValueEntryNoFilters);
+        if not TempPostValueEntryToGL.FindSet() then
+            exit;
+
+        MaxNoOfFilterParameters := SelectionFilterManagement.GetMaximumNumberOfParametersInSQLQuery();
+        FromValueEntryNo := TempPostValueEntryToGL."Value Entry No.";
+        ToValueEntryNo := FromValueEntryNo;
+        while TempPostValueEntryToGL.Next() <> 0 do
+            if TempPostValueEntryToGL."Value Entry No." = ToValueEntryNo + 1 then
+                ToValueEntryNo := TempPostValueEntryToGL."Value Entry No."
+            else begin
+                AddRangeToValueEntryNoFilter(ValueEntryNoFilters, ValueEntryNoFilter, NoOfFilterParameters, MaxNoOfFilterParameters, FromValueEntryNo, ToValueEntryNo);
+                FromValueEntryNo := TempPostValueEntryToGL."Value Entry No.";
+                ToValueEntryNo := FromValueEntryNo;
+            end;
+        AddRangeToValueEntryNoFilter(ValueEntryNoFilters, ValueEntryNoFilter, NoOfFilterParameters, MaxNoOfFilterParameters, FromValueEntryNo, ToValueEntryNo);
+        ValueEntryNoFilters.Add(ValueEntryNoFilter.ToText());
+    end;
+
+    local procedure AddRangeToValueEntryNoFilter(var ValueEntryNoFilters: List of [Text]; var ValueEntryNoFilter: TextBuilder; var NoOfFilterParameters: Integer; MaxNoOfFilterParameters: Integer; FromValueEntryNo: Integer; ToValueEntryNo: Integer)
+    var
+        NoOfRangeParameters: Integer;
+    begin
+        NoOfRangeParameters := 1;
+        if ToValueEntryNo <> FromValueEntryNo then
+            NoOfRangeParameters := 2;
+
+        if NoOfFilterParameters + NoOfRangeParameters > MaxNoOfFilterParameters then begin
+            ValueEntryNoFilters.Add(ValueEntryNoFilter.ToText());
+            ValueEntryNoFilter.Clear();
+            NoOfFilterParameters := 0;
+        end;
+
+        if ValueEntryNoFilter.Length() > 0 then
+            ValueEntryNoFilter.Append('|');
+        ValueEntryNoFilter.Append(Format(FromValueEntryNo, 0, 9));
+        if ToValueEntryNo <> FromValueEntryNo then
+            ValueEntryNoFilter.Append('..' + Format(ToValueEntryNo, 0, 9));
+        NoOfFilterParameters += NoOfRangeParameters;
     end;
 }
 
